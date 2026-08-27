@@ -3,7 +3,7 @@ import json
 from .config import settings
 
 
-def get_openrouter_response(prompt):
+def get_openrouter_response(prompt, model="~anthropic/claude-sonnet-latest"):
     return requests.post(
         url="https://openrouter.ai/api/v1/chat/completions",
         headers={
@@ -12,7 +12,7 @@ def get_openrouter_response(prompt):
             "X-OpenRouter-Title": "akhshy.dev",
         },
         data=json.dumps({
-            "model": "~anthropic/claude-sonnet-latest",
+            "model": model,
             "messages": [
             {
                 "role": "user",
