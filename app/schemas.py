@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict
 
 
 class TodoCreateOrUpdate(BaseModel):
@@ -6,7 +8,8 @@ class TodoCreateOrUpdate(BaseModel):
     description: str
     completed: bool = False
     priority: int = 1
-    end_time: str = None
+    end_time: Optional[str] = None
+
 
 class TodoResponse(BaseModel):
     id: int
@@ -14,7 +17,6 @@ class TodoResponse(BaseModel):
     description: str
     completed: bool
     priority: int
-    end_time: str = None
+    end_time: Optional[str] = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

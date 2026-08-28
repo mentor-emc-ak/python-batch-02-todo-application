@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Todos</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --text: #e6e8ee;
+    --muted: #8b93a7; --accent: #6c8cff; --danger: #ff6b6b; --ok: #3ecf8e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 40px 20px 120px; }
+  h1 { font-size: 26px; margin: 0 0 24px; }
+  form.new { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 8px; margin-bottom: 24px; }
+  input, textarea, select, button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px;
+  }
+  input::placeholder { color: var(--muted); }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #0b0e14; font-weight: 600; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  li {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start;
+  }
+  li.done .title { text-decoration: line-through; color: var(--muted); }
+  .grow { flex: 1; min-width: 0; }
+  .title { font-weight: 600; }
+  .desc { color: var(--muted); font-size: 13px; }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .icon { background: none; border: none; color: var(--muted); padding: 4px 6px; }
+  .icon:hover { color: var(--danger); }
+  .empty { color: var(--muted); padding: 24px 0; }
+
+  /* chat */
+  #chat-toggle {
+    position: fixed; right: 24px; bottom: 24px; width: 56px; height: 56px;
+    border-radius: 50%; background: var(--accent); color: #0b0e14;
+    border: none; font-size: 22px; box-shadow: 0 8px 24px rgba(0,0,0,.4); z-index: 20;
+  }
+  #chat {
+    position: fixed; right: 24px; bottom: 92px; width: 360px; max-width: calc(100vw - 32px);
+    height: 480px; max-height: calc(100vh - 130px); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 14px; display: none;
+    flex-direction: column; overflow: hidden; box-shadow: 0 16px 48px rgba(0,0,0,.5); z-index: 20;
+  }
+  #chat.open { display: flex; }
+  #chat header { padding: 12px 14px; border-bottom: 1px solid var(--line); font-weight: 600; }
+  #chat header small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
+  #log { flex: 1; overflow-y: auto; padding: 14px; display: grid; gap: 10px; align-content: start; }
+  .msg { padding: 9px 12px; border-radius: 12px; max-width: 85%; white-space: pre-wrap; font-size: 14px; }
+  .msg.user { background: var(--accent); color: #0b0e14; justify-self: end; }
+  .msg.bot { background: #21262f; }
+  .msg.err { background: #3a1f22; color: var(--danger); }
+  #chat form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
+  #chat input { flex: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Todos</h1>
+
+  <form class="new" id="new-todo">
+    <input name="title" placeholder="What needs doing?" required>
+    <input name="description" placeholder="Notes">
+    <select name="priority">
+      <option value="1">Low</option>
+      <option value="2">Medium</option>
+      <option value="3">High</option>
+    </select>
+    <button class="primary">Add</button>
+  </form>
+
+  <ul id="list"></ul>
+  <div class="empty" id="empty" hidden>Nothing here yet.</div>
+</div>
+
+<button id="chat-toggle" title="Ask the assistant">✦</button>
+
+<div id="chat">
+  <header>Assistant<small>Knows your todo list</small></header>
+  <div id="log"></div>
+  <form id="chat-form">
+    <input id="chat-input" placeholder="Ask about your todos..." autocomplete="off" required>
+    <button class="primary">Send</button>
+  </form>
+</div>
+
+<script>
+// Served by the API itself -> same origin. Opened via a separate dev server or
+// file:// -> fall back to where uvicorn runs.
+const API_BASE = location.port === '8000' ? '' : 'http://127.0.0.1:8000';
+
+const api = (p, opts) => fetch(API_BASE + p, opts).then(async r => {
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+});
+
+const list = document.getElementById('list');
+const empty = document.getElementById('empty');
+let todos = [];
+
+const PRIORITY = { 1: 'Low', 2: 'Medium', 3: 'High' };
+
+function render() {
+  empty.hidden = todos.length > 0;
+  list.innerHTML = '';
+  for (const t of todos) {
+    const li = document.createElement('li');
+    li.className = t.completed ? 'done' : '';
+    li.innerHTML = `
+      <input type="checkbox" ${t.completed ? 'checked' : ''}>
+      <div class="grow">
+        <div class="title"></div>
+        <div class="desc"></div>
+        <div class="meta">${PRIORITY[t.priority] || t.priority} priority</div>
+      </div>
+      <button class="icon" title="Delete">✕</button>`;
+    li.querySelector('.title').textContent = t.title;
+    li.querySelector('.desc').textContent = t.description || '';
+    li.querySelector('input').onchange = () => toggle(t);
+    li.querySelector('button').onclick = () => remove(t);
+    list.appendChild(li);
+  }
+}
+
+async function load() {
+  todos = await api('/todos');
+  render();
+}
+
+async function toggle(t) {
+  await api(`/todos/${t.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...t, completed: !t.completed }),
+  });
+  load();
+}
+
+async function remove(t) {
+  await api(`/todos/${t.id}`, { method: 'DELETE' });
+  load();
+}
+
+document.getElementById('new-todo').onsubmit = async e => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  await api('/todos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: f.get('title'),
+      description: f.get('description') || '',
+      priority: Number(f.get('priority')),
+      completed: false,
+    }),
+  });
+  e.target.reset();
+  load();
+};
+
+// chat
+const chat = document.getElementById('chat');
+const log = document.getElementById('log');
+const input = document.getElementById('chat-input');
+
+document.getElementById('chat-toggle').onclick = () => {
+  chat.classList.toggle('open');
+  if (chat.classList.contains('open')) input.focus();
+};
+
+function bubble(text, kind) {
+  const el = document.createElement('div');
+  el.className = `msg ${kind}`;
+  el.textContent = text;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+  return el;
+}
+
+bubble('Hi. Ask me what to work on next, or for a summary of your list.', 'bot');
+
+document.getElementById('chat-form').onsubmit = async e => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  bubble(text, 'user');
+  const pending = bubble('Thinking...', 'bot');
+  try {
+    const { reply } = await api('/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    });
+    pending.textContent = reply;
+  } catch (err) {
+    pending.className = 'msg err';
+    pending.textContent = String(err.message);
+  }
+  log.scrollTop = log.scrollHeight;
+};
+
+load();
+</script>
+</body>
+</html>
